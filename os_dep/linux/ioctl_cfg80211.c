@@ -175,6 +175,17 @@ static struct ieee80211_channel rtw_5ghz_a_channels[MAX_CHANNEL_NUM_5G] = {
 	CHAN5G(165, 0),	CHAN5G(169, 0),	CHAN5G(173, 0),	CHAN5G(177, 0),
 };
 
+static int	cfg80211_rtw_set_channel(struct wiphy *wiphy
+	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 35))
+	, struct net_device *ndev
+	#endif
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
+	, struct cfg80211_chan_def *chandef
+#else
+	, struct ieee80211_channel *chan
+	, enum nl80211_channel_type channel_type
+#endif
+	);
 
 void rtw_2g_channels_init(struct ieee80211_channel *channels)
 {
@@ -1745,6 +1756,7 @@ static int cfg80211_rtw_change_iface(struct wiphy *wiphy,
 	enum nl80211_iftype old_type;
 	NDIS_802_11_NETWORK_INFRASTRUCTURE networkType;
 	_adapter *padapter = (_adapter *)rtw_netdev_priv(ndev);
+	struct mlme_priv	 *pmlmepriv = &(padapter->mlmepriv);
 	struct wireless_dev *rtw_wdev = padapter->rtw_wdev;
 	struct mlme_ext_priv	*pmlmeext = &(padapter->mlmeextpriv);
 #ifdef CONFIG_P2P
@@ -1873,6 +1885,9 @@ static int cfg80211_rtw_change_iface(struct wiphy *wiphy,
 	}
 
 	rtw_setopmode_cmd(padapter, networkType, _TRUE);
+
+	if (check_fwstate(pmlmepriv, WIFI_MONITOR_STATE) == _TRUE)
+		rtw_indicate_connect(padapter);
 
 exit:
 
@@ -4190,6 +4205,9 @@ static int cfg80211_rtw_start_ap(struct wiphy *wiphy, struct net_device *ndev,
 				pbss_network_ext->Ssid.Ssid, pbss_network_ext->Ssid.SsidLength);
 	}
 
+	/*add by tony on 2018.03.29*/
+	cfg80211_rtw_set_channel(wiphy, ndev, &settings->chandef);
+
 	return ret;
 }
 
@@ -4264,15 +4282,22 @@ static int	cfg80211_rtw_add_station(struct wiphy *wiphy, struct net_device *ndev
 	struct station_parameters *params)
 {
 	int ret = 0;
-#ifdef CONFIG_TDLS
+
 	_adapter *padapter = (_adapter *)rtw_netdev_priv(ndev);
 	struct sta_priv *pstapriv = &padapter->stapriv;
 	struct sta_info *psta;
-#endif /* CONFIG_TDLS */
+	struct mlme_priv *pmlmepriv = &(padapter->mlmepriv);
+
 	RTW_INFO(FUNC_NDEV_FMT"\n", FUNC_NDEV_ARG(ndev));
 
-#ifdef CONFIG_TDLS
+	if (check_fwstate(pmlmepriv, (_FW_LINKED | WIFI_AP_STATE)) != _TRUE)
+		return -EINVAL;
+
+	if (is_multicast_ether_addr(mac))
+		return -EINVAL;
+
 	psta = rtw_get_stainfo(pstapriv, (u8 *)mac);
+#ifdef CONFIG_TDLS
 	if (psta == NULL) {
 		psta = rtw_alloc_stainfo(pstapriv, (u8 *)mac);
 		if (psta == NULL) {
@@ -4281,6 +4306,54 @@ static int	cfg80211_rtw_add_station(struct wiphy *wiphy, struct net_device *ndev
 			goto exit;
 		}
 	}
+#else
+	if (psta == NULL)
+		psta = rtw_alloc_stainfo(pstapriv, (u8 *)mac);
+
+	if (psta) {
+		if (params->aid > 0 && params->aid < IEEE80211_MAX_AID)
+			psta->aid = params->aid;
+
+		_rtw_memcpy(psta->bssrateset, params->supported_rates, params->supported_rates_len);
+
+		if (params->sta_flags_set & BIT(NL80211_STA_FLAG_WME))
+			psta->qos_option = 1;
+		else
+			psta->qos_option = 0;
+
+		if (pmlmepriv->qospriv.qos_option == 0)
+			psta->qos_option = 0;
+
+#ifdef CONFIG_80211N_HT
+		/* chec 802.11n ht cap. */
+		if (params->ht_capa) {
+			psta->htpriv.ht_option = _TRUE;
+			psta->qos_option = 1;
+			_rtw_memcpy((void *)&psta->htpriv.ht_cap, (void *)params->ht_capa, sizeof(struct rtw_ieee80211_ht_cap));
+		} else
+			psta->htpriv.ht_option = _FALSE;
+
+		if (pmlmepriv->htpriv.ht_option == _FALSE)
+			psta->htpriv.ht_option = _FALSE;
+#endif
+
+#ifdef CONFIG_80211AC_VHT
+		/* chec 802.11ac vht cap. */
+		if (params->vht_capa) {
+			
+			psta->vhtpriv.vht_option = _TRUE;
+			psta->qos_option = 1;
+			_rtw_memcpy((void *)psta->vhtpriv.vht_cap, (void *)params->vht_capa, sizeof(struct rtw_ieee80211_vht_cap));
+		} else
+			psta->vhtpriv.vht_option = _FALSE;
+
+		if (pmlmepriv->vhtpriv.vht_option == _FALSE)
+			psta->vhtpriv.vht_option = _FALSE;
+#endif
+		update_sta_info_apmode(padapter, psta);
+
+	} else
+		ret = -ENOMEM;
 #endif /* CONFIG_TDLS */
 
 exit:
@@ -4473,17 +4546,73 @@ static int	cfg80211_rtw_set_channel(struct wiphy *wiphy
 	#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 35))
 	, struct net_device *ndev
 	#endif
-	, struct ieee80211_channel *chan, enum nl80211_channel_type channel_type)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
+	, struct cfg80211_chan_def *chandef
+#else
+	, struct ieee80211_channel *chan
+	, enum nl80211_channel_type channel_type
+#endif
+	)
 {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 35))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 35) && LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0))
 	_adapter *padapter = (_adapter *)rtw_netdev_priv(ndev);
 #else
 	_adapter *padapter = wiphy_to_adapter(wiphy);
 #endif
-	int chan_target = (u8) ieee80211_frequency_to_channel(chan->center_freq);
-	int chan_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
-	int chan_width = CHANNEL_WIDTH_20;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
+	struct ieee80211_channel *chan = chandef->chan;
+#endif
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
+	int target_channal = chan->hw_value;
+	int target_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
+	int target_width = CHANNEL_WIDTH_20;
+#ifdef CONFIG_DEBUG_CFG80211
+	RTW_INFO("center_freq %u Mhz ch %u width %u freq1 %u freq2 %u\n"
+		, chan->center_freq
+		, chan->hw_value
+		, chandef->width
+		, chandef->center_freq1
+		, chandef->center_freq2);
+#endif /* CONFIG_DEBUG_CFG80211 */
+
+	switch (chandef->width) {
+	case NL80211_CHAN_WIDTH_20_NOHT:
+	case NL80211_CHAN_WIDTH_20:
+		target_width = CHANNEL_WIDTH_20;
+		target_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
+		break;
+	case NL80211_CHAN_WIDTH_40:
+		target_width = CHANNEL_WIDTH_40;
+		if (chandef->center_freq1 > chan->center_freq)
+			target_offset = HAL_PRIME_CHNL_OFFSET_LOWER;
+		else
+			target_offset = HAL_PRIME_CHNL_OFFSET_UPPER;
+		break;
+	case NL80211_CHAN_WIDTH_80:
+		target_width = CHANNEL_WIDTH_80;
+		target_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
+		break;
+	case NL80211_CHAN_WIDTH_80P80:
+		target_width = CHANNEL_WIDTH_80_80;
+		target_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
+		break;
+	case NL80211_CHAN_WIDTH_160:
+		target_width = CHANNEL_WIDTH_160;
+		target_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
+		break;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 11, 0))
+	case NL80211_CHAN_WIDTH_5:
+	case NL80211_CHAN_WIDTH_10:
+#endif
+	default:
+		target_width = CHANNEL_WIDTH_20;
+		target_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
+		break;
+	}
+
+#else
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 35))
 	RTW_INFO(FUNC_NDEV_FMT"\n", FUNC_NDEV_ARG(ndev));
 #endif
@@ -4491,24 +4620,24 @@ static int	cfg80211_rtw_set_channel(struct wiphy *wiphy
 	switch (channel_type) {
 	case NL80211_CHAN_NO_HT:
 	case NL80211_CHAN_HT20:
-		chan_width = CHANNEL_WIDTH_20;
-		chan_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
+		target_width = CHANNEL_WIDTH_20;
+		target_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
 		break;
 	case NL80211_CHAN_HT40MINUS:
-		chan_width = CHANNEL_WIDTH_40;
-		chan_offset = HAL_PRIME_CHNL_OFFSET_UPPER;
+		target_width = CHANNEL_WIDTH_40;
+		target_offset = HAL_PRIME_CHNL_OFFSET_UPPER;
 		break;
 	case NL80211_CHAN_HT40PLUS:
-		chan_width = CHANNEL_WIDTH_40;
-		chan_offset = HAL_PRIME_CHNL_OFFSET_LOWER;
+		target_width = CHANNEL_WIDTH_40;
+		target_offset = HAL_PRIME_CHNL_OFFSET_LOWER;
 		break;
 	default:
-		chan_width = CHANNEL_WIDTH_20;
-		chan_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
+		target_width = CHANNEL_WIDTH_20;
+		target_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
 		break;
 	}
-
-	set_channel_bwmode(padapter, chan_target, chan_offset, chan_width);
+#endif
+	set_channel_bwmode(padapter, target_channal, target_offset, target_width);
 
 	return 0;
 }
@@ -4527,7 +4656,8 @@ static int cfg80211_rtw_set_monitor_channel(struct wiphy *wiphy
 #endif
 
 	_adapter *padapter = wiphy_to_adapter(wiphy);
-	int target_channal = chan->hw_value;
+	struct mlme_priv *pmlmepriv = &(padapter->mlmepriv);
+	int target_channel = chan->hw_value;
 	int target_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
 	int target_width = CHANNEL_WIDTH_20;
 
@@ -4605,7 +4735,7 @@ static int cfg80211_rtw_set_monitor_channel(struct wiphy *wiphy
 	}
 #endif
 
-	set_channel_bwmode(padapter, target_channal, target_offset, target_width);
+	set_channel_bwmode(padapter, target_channel, target_offset, target_width);
 
 	return 0;
 }
@@ -6584,9 +6714,15 @@ static void rtw_cfg80211_init_ht_capab(_adapter *padapter, struct ieee80211_sta_
 
 	ht_cap->ht_supported = _TRUE;
 
-	ht_cap->cap = IEEE80211_HT_CAP_SUP_WIDTH_20_40 |
-				IEEE80211_HT_CAP_SGI_40 | IEEE80211_HT_CAP_SGI_20 |
-				IEEE80211_HT_CAP_DSSSCCK40 | IEEE80211_HT_CAP_MAX_AMSDU;
+	/* According to the comment in rtw_ap.c:
+	 * "Note: currently we switch to the MIXED op mode if HT non-greenfield
+	 * station is associated. Probably it's a theoretical case, since
+	 * it looks like all known HT STAs support greenfield."
+	 * Therefore Greenfield is added to ht_cap
+	 */
+	ht_cap->cap = IEEE80211_HT_CAP_SUP_WIDTH_20_40 | IEEE80211_HT_CAP_GRN_FLD |
+	    				IEEE80211_HT_CAP_SGI_40 | IEEE80211_HT_CAP_SGI_20 |
+	    				IEEE80211_HT_CAP_DSSSCCK40 | IEEE80211_HT_CAP_MAX_AMSDU;
 	rtw_cfg80211_init_ht_capab_ex(padapter, ht_cap, band, rf_type);
 
 	/*
@@ -6631,6 +6767,95 @@ static void rtw_cfg80211_init_ht_capab(_adapter *padapter, struct ieee80211_sta_
 		, ht_cap->mcs.rx_mask
 	);
 }
+
+static void rtw_cfg80211_init_vht_capab_ex(_adapter *padapter, struct ieee80211_sta_vht_cap *vht_cap, u8 rf_type)
+{
+//todo: Support for other bandwidths
+
+/* NSS = Number of Spatial Streams */
+#define MAX_BIT_RATE_80MHZ_NSS3		1300	/* Mbps */
+#define MAX_BIT_RATE_80MHZ_NSS2		867		/* Mbps */
+#define MAX_BIT_RATE_80MHZ_NSS1		434		/* Mbps */
+
+	struct registry_priv *pregistrypriv = &padapter->registrypriv;
+	struct mlme_priv	*pmlmepriv = &padapter->mlmepriv;
+	struct vht_priv	*pvhtpriv = &pmlmepriv->vhtpriv;
+	//tony
+	//struct hal_spec_t *hal_spec = GET_HAL_SPEC(padapter);
+
+	rtw_vht_use_default_setting(padapter);
+
+	/* RX LDPC */
+	if (TEST_FLAG(pvhtpriv->ldpc_cap, LDPC_VHT_ENABLE_RX))
+		vht_cap->cap |= IEEE80211_VHT_CAP_RXLDPC;
+
+	/* TX STBC */
+	if (TEST_FLAG(pvhtpriv->stbc_cap, STBC_VHT_ENABLE_TX))
+		vht_cap->cap |= IEEE80211_VHT_CAP_TXSTBC;
+
+	/* RX STBC */
+	if (TEST_FLAG(pvhtpriv->stbc_cap, STBC_VHT_ENABLE_RX)) {
+		switch (rf_type) {
+		case RF_1T1R:
+			vht_cap->cap |= IEEE80211_VHT_CAP_RXSTBC_1;/*RX STBC One spatial stream*/
+			break;
+		case RF_2T2R:
+		case RF_1T2R:
+			vht_cap->cap |= IEEE80211_VHT_CAP_RXSTBC_2;/*RX STBC Two spatial streams*/
+			break;
+		case RF_3T3R:
+		case RF_3T4R:
+		case RF_4T4R:
+			vht_cap->cap |= IEEE80211_VHT_CAP_RXSTBC_3;/*RX STBC Three spatial streams*/
+			break;
+		default:
+			RTW_INFO("[warning] rf_type %d is not expected\n", rf_type);
+			break;
+		}
+	}
+
+	/* switch (rf_type) {
+	case RF_1T1R:
+		vht_cap->vht_mcs.tx_highest = MAX_BIT_RATE_80MHZ_NSS1;
+		vht_cap->vht_mcs.rx_highest = MAX_BIT_RATE_80MHZ_NSS1;
+		break;
+	case RF_2T2R:
+	case RF_1T2R:
+		vht_cap->vht_mcs.tx_highest = MAX_BIT_RATE_80MHZ_NSS2;
+		vht_cap->vht_mcs.rx_highest = MAX_BIT_RATE_80MHZ_NSS2;
+		break;
+	case RF_3T3R:
+	case RF_3T4R:
+	case RF_4T4R:
+		vht_cap->vht_mcs.tx_highest = MAX_BIT_RATE_80MHZ_NSS3;
+		vht_cap->vht_mcs.rx_highest = MAX_BIT_RATE_80MHZ_NSS3;
+		break;
+	default:
+		DBG_871X("[warning] rf_type %d is not expected\n", rf_type);
+		break;
+	} */
+
+	/* MCS map */
+	vht_cap->vht_mcs.tx_mcs_map = pvhtpriv->vht_mcs_map[0] | (pvhtpriv->vht_mcs_map[1] << 8);
+	vht_cap->vht_mcs.rx_mcs_map = vht_cap->vht_mcs.tx_mcs_map;
+
+	if (rf_type == RF_1T1R) {
+		vht_cap->vht_mcs.tx_highest = MAX_BIT_RATE_80MHZ_NSS1;
+		vht_cap->vht_mcs.rx_highest = MAX_BIT_RATE_80MHZ_NSS1;
+	}
+
+	if (pvhtpriv->sgi_80m)
+		vht_cap->cap |= IEEE80211_VHT_CAP_SHORT_GI_80;
+
+	vht_cap->cap |= (pvhtpriv->ampdu_len << IEEE80211_VHT_CAP_MAX_A_MPDU_LENGTH_EXPONENT_SHIFT);
+}
+
+static void rtw_cfg80211_init_vht_capab(_adapter *padapter, struct ieee80211_sta_vht_cap *vht_cap, u8 rf_type)
+{
+	vht_cap->vht_supported = _TRUE;
+	rtw_cfg80211_init_vht_capab_ex(padapter, vht_cap, rf_type);
+}
+
 void rtw_cfg80211_init_wdev_data(_adapter *padapter)
 {
 #ifdef CONFIG_CONCURRENT_MODE
@@ -6659,8 +6884,10 @@ void rtw_cfg80211_init_wiphy(_adapter *padapter)
 #ifdef CONFIG_IEEE80211_BAND_5GHZ
 	if (is_supported_5g(padapter->registrypriv.wireless_mode)) {
 		bands = wiphy->bands[NL80211_BAND_5GHZ];
-		if (bands)
+		if (bands) {
 			rtw_cfg80211_init_ht_capab(padapter, &bands->ht_cap, NL80211_BAND_5GHZ, rf_type);
+			rtw_cfg80211_init_vht_capab(padapter, &bands->vht_cap, rf_type);
+		}
 	}
 #endif
 	/* init regulary domain */

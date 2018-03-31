@@ -274,12 +274,26 @@ void	update_sta_vht_info_apmode(_adapter *padapter, PVOID sta)
 	struct vht_priv	*pvhtpriv_ap = &pmlmepriv->vhtpriv;
 	struct vht_priv	*pvhtpriv_sta = &psta->vhtpriv;
 	struct ht_priv		*phtpriv_sta = &psta->htpriv;
+	struct registry_priv *pregistrypriv = &padapter->registrypriv;
 	u8	cur_ldpc_cap = 0, cur_stbc_cap = 0, bw_mode = 0;
 	u16	cur_beamform_cap = 0;
 	u8	*pcap_mcs;
+	u8	opmode = 0;
+	u8	chnl_width, rx_nss;
+	/* find the largest bw supported by both registry and hal */
+	chnl_width = hal_largest_bw(padapter, REGSTY_BW_5G(pregistrypriv));
 
 	if (pvhtpriv_sta->vht_option == _FALSE)
 		return;
+
+	pcap_mcs = GET_VHT_CAPABILITY_ELE_RX_MCS(pvhtpriv_sta->vht_cap);
+	_rtw_memcpy(pvhtpriv_sta->vht_mcs_map, pcap_mcs, 2);
+	rx_nss = rtw_vht_mcsmap_to_nss(pvhtpriv_sta->vht_mcs_map);
+
+	SET_VHT_OPERATING_MODE_FIELD_CHNL_WIDTH(&opmode, chnl_width);
+	SET_VHT_OPERATING_MODE_FIELD_RX_NSS(&opmode, (rx_nss - 1));
+	SET_VHT_OPERATING_MODE_FIELD_RX_NSS_TYPE(&opmode, 0); /* Todo */
+	psta->vhtpriv.vht_op_mode_notify = opmode;
 
 	bw_mode = GET_VHT_OPERATING_MODE_FIELD_CHNL_WIDTH(&pvhtpriv_sta->vht_op_mode_notify);
 
@@ -338,9 +352,6 @@ void	update_sta_vht_info_apmode(_adapter *padapter, PVOID sta)
 
 	/* B23 B24 B25 Maximum A-MPDU Length Exponent */
 	pvhtpriv_sta->ampdu_len = GET_VHT_CAPABILITY_ELE_MAX_RXAMPDU_FACTOR(pvhtpriv_sta->vht_cap);
-
-	pcap_mcs = GET_VHT_CAPABILITY_ELE_RX_MCS(pvhtpriv_sta->vht_cap);
-	_rtw_memcpy(pvhtpriv_sta->vht_mcs_map, pcap_mcs, 2);
 	pvhtpriv_sta->vht_highest_rate = rtw_get_vht_highest_rate(pvhtpriv_sta->vht_mcs_map);
 }
 

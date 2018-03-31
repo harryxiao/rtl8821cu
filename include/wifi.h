@@ -811,6 +811,24 @@ struct rtw_ieee80211_ht_cap {
 	unsigned char	       antenna_selection_info;
 } __attribute__((packed));
 
+
+/**
+ * struct rtw_ieee80211_vht_cap - VHT capabilities
+ *
+ * This structure is the "VHT capabilities element" as
+ * described in 802.11ac D3.0 8.4.2.160
+ * @vht_cap_info: VHT capability info
+ * @supp_mcs: VHT MCS supported rates
+ */
+struct rtw_ieee80211_vht_cap {
+	unsigned int vht_cap_info;
+	unsigned short rx_mcs_map;
+	unsigned short rx_highest;
+	unsigned short tx_mcs_map;
+	unsigned short tx_highest;
+} __attribute__((packed));
+
+
 /**
  * struct rtw_ieee80211_ht_cap - HT additional information
  *

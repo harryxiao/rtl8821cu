@@ -678,8 +678,12 @@ int rtw_recv_monitor(_adapter *padapter, union recv_frame *precv_frame)
 	_pkt *skb;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct rx_pkt_attrib *pattrib;
+	struct rtw_wdev_priv *pwdev_priv = adapter_wdev_data(padapter);
 
 	if (NULL == precv_frame)
+		goto _recv_drop;
+
+	if (NULL == pwdev_priv->pmon_ndev)
 		goto _recv_drop;
 
 	pattrib = &precv_frame->u.hdr.attrib;
@@ -699,7 +703,8 @@ int rtw_recv_monitor(_adapter *padapter, union recv_frame *precv_frame)
 	skb->pkt_type = PACKET_OTHERHOST;
 	skb->protocol = htons(0x0019); /* ETH_P_80211_RAW */
 
-	rtw_netif_rx(padapter->pnetdev, skb);
+	//rtw_netif_rx(padapter->pnetdev, skb);
+	rtw_netif_rx(pwdev_priv->pmon_ndev, skb);
 
 	/* pointers to NULL before rtw_free_recvframe() */
 	precv_frame->u.hdr.pkt = NULL;

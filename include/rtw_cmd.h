@@ -336,7 +336,7 @@ struct createbss_parm {
 	s8 req_offset;
 };
 
-#if 0
+#if 1
 /* Caller Mode: AP, Ad-HoC, Infra */
 /* Notes: To set the NIC mode of RTL8711 */
 /* Command Mode */
