@@ -683,9 +683,6 @@ int rtw_recv_monitor(_adapter *padapter, union recv_frame *precv_frame)
 	if (NULL == precv_frame)
 		goto _recv_drop;
 
-	if (NULL == pwdev_priv->pmon_ndev)
-		goto _recv_drop;
-
 	pattrib = &precv_frame->u.hdr.attrib;
 	precvpriv = &(padapter->recvpriv);
 	pfree_recv_queue = &(precvpriv->free_recv_queue);
@@ -703,8 +700,10 @@ int rtw_recv_monitor(_adapter *padapter, union recv_frame *precv_frame)
 	skb->pkt_type = PACKET_OTHERHOST;
 	skb->protocol = htons(0x0019); /* ETH_P_80211_RAW */
 
-	//rtw_netif_rx(padapter->pnetdev, skb);
-	rtw_netif_rx(pwdev_priv->pmon_ndev, skb);
+	if (pwdev_priv->pmon_ndev == NULL) /*Monitor mode on Primary Interface*/
+		rtw_netif_rx(padapter->pnetdev, skb);
+	else /*Monitor mode on virutal monitor Interface*/
+		rtw_netif_rx(pwdev_priv->pmon_ndev, skb);
 
 	/* pointers to NULL before rtw_free_recvframe() */
 	precv_frame->u.hdr.pkt = NULL;

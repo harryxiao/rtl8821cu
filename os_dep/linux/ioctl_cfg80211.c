@@ -1756,7 +1756,7 @@ static int cfg80211_rtw_change_iface(struct wiphy *wiphy,
 	enum nl80211_iftype old_type;
 	NDIS_802_11_NETWORK_INFRASTRUCTURE networkType;
 	_adapter *padapter = (_adapter *)rtw_netdev_priv(ndev);
-	struct mlme_priv	 *pmlmepriv = &(padapter->mlmepriv);
+	struct mlme_priv *pmlmepriv = &(padapter->mlmepriv);
 	struct wireless_dev *rtw_wdev = padapter->rtw_wdev;
 	struct mlme_ext_priv	*pmlmeext = &(padapter->mlmeextpriv);
 #ifdef CONFIG_P2P
@@ -4564,7 +4564,7 @@ static int	cfg80211_rtw_set_channel(struct wiphy *wiphy
 #endif
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 8, 0))
-	int target_channal = chan->hw_value;
+	int target_channel = chan->hw_value;
 	int target_offset = HAL_PRIME_CHNL_OFFSET_DONT_CARE;
 	int target_width = CHANNEL_WIDTH_20;
 #ifdef CONFIG_DEBUG_CFG80211
@@ -4637,7 +4637,7 @@ static int	cfg80211_rtw_set_channel(struct wiphy *wiphy
 		break;
 	}
 #endif
-	set_channel_bwmode(padapter, target_channal, target_offset, target_width);
+	set_channel_bwmode(padapter, target_channel, target_offset, target_width);
 
 	return 0;
 }
