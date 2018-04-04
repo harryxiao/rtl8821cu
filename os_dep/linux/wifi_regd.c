@@ -402,7 +402,8 @@ static int _rtw_reg_notifier_apply(struct wiphy *wiphy,
 				   struct regulatory_request *request,
 				   struct rtw_regulatory *reg)
 {
-
+	_adapter *padapter = wiphy_to_adapter(wiphy);
+	int i, ret = 0;
 	/* Hard code flags */
 	_rtw_reg_apply_flags(wiphy);
 
@@ -426,6 +427,8 @@ static int _rtw_reg_notifier_apply(struct wiphy *wiphy,
 			 "NL80211_REGDOM_SET_BY_USER to DRV");
 		_rtw_reg_apply_world_flags(wiphy, NL80211_REGDOM_SET_BY_DRIVER,
 					   reg);
+		RTW_INFO("%s: \"%c%c\"\n", __func__, request->alpha2[0], request->alpha2[1]);
+		ret = rtw_set_country(padapter, request->alpha2);
 		break;
 	case NL80211_REGDOM_SET_BY_COUNTRY_IE:
 		RTW_INFO("%s: %s\n", __func__,
@@ -434,7 +437,7 @@ static int _rtw_reg_notifier_apply(struct wiphy *wiphy,
 		break;
 	}
 
-	return 0;
+	return ret;
 }
 
 static const struct ieee80211_regdomain *_rtw_regdomain_select(struct

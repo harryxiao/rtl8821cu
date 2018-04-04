@@ -1282,6 +1282,8 @@ odm_rx_phy_status_jaguar_series_parsing(
 							EVM += 20;
 							if (EVM > 100)
 								EVM = 100;
+						} else {
+							EVM = 0;
 						}
 					} else {
 						if (i < ODM_RF_PATH_C) {

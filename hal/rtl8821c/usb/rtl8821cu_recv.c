@@ -41,9 +41,12 @@ static u8 recvbuf2recvframe_proccess_normal_rx
 	u8 *pphy_status = NULL;
 	struct recv_priv *precvpriv = &padapter->recvpriv;
 	_queue *pfree_recv_queue = &precvpriv->free_recv_queue;
+	HAL_DATA_TYPE *pHalData = GET_HAL_DATA(padapter);
 
 #ifdef CONFIG_RX_PACKET_APPEND_FCS
-	pattrib->pkt_len -= IEEE80211_FCS_LEN;
+	if (check_fwstate(&padapter->mlmepriv, WIFI_MONITOR_STATE) == _FALSE)
+		if (pHalData->ReceiveConfig & RCR_APPFCS)
+				pattrib->pkt_len -= IEEE80211_FCS_LEN;
 #endif
 
 	if (rtw_os_alloc_recvframe(padapter, precvframe,

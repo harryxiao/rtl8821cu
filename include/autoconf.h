@@ -35,6 +35,11 @@
 #define PLATFORM_LINUX
 
 /*
+ * Monitor function Config
+ */
+//#define CONFIG_RADIOTAP_WITH_RXDESC
+
+/*
  * Wi-Fi Functions Config
  */
 
@@ -276,7 +281,7 @@
 /*
  * HAL  Related Config
  */
-/*#define CONFIG_RX_PACKET_APPEND_FCS*/
+/* #define CONFIG_RX_PACKET_APPEND_FCS */ /*Tony enable for test 2018.04.02*/
 
 /*#define CONFIG_ADHOC_WORKAROUND_SETTING*/
 

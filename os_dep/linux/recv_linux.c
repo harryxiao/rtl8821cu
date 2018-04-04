@@ -698,7 +698,7 @@ int rtw_recv_monitor(_adapter *padapter, union recv_frame *precv_frame)
 	skb->len = precv_frame->u.hdr.len;
 	skb->ip_summed = CHECKSUM_NONE;
 	skb->pkt_type = PACKET_OTHERHOST;
-	skb->protocol = htons(0x0019); /* ETH_P_80211_RAW */
+	skb->protocol = htons(ETH_P_802_2); /* ETH_P_80211_RAW */
 
 	if (pwdev_priv->pmon_ndev == NULL) /*Monitor mode on Primary Interface*/
 		rtw_netif_rx(padapter->pnetdev, skb);

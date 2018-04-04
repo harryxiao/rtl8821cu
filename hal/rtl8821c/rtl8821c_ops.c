@@ -875,7 +875,8 @@ static void hw_var_set_monitor(PADAPTER Adapter, u8 *val)
 	rcr_bits |= (RCR_ACRC32 | RCR_AICV);
 	#endif
 
-	rtl8821c_rcr_config(Adapter, rcr_bits);
+	//rtl8821c_rcr_config(Adapter, rcr_bits);
+	rtw_write32(Adapter, REG_RCR_8821C, rcr_bits);
 	/* Receive all data frames */
 	rtw_write16(Adapter, REG_RXFLTMAP_8821C, 0xFFFF);
 
@@ -893,7 +894,8 @@ static void hw_var_set_opmode(PADAPTER Adapter, u8 *val)
 
 	if (isMonitor == _TRUE) {
 		/* reset RCR */
-		rtl8821c_rcr_config(Adapter, pHalData->ReceiveConfig);
+		//rtl8821c_rcr_config(Adapter, pHalData->ReceiveConfig);
+		rtw_write32(Adapter, REG_RCR_8821C, pHalData->ReceiveConfig);
 		isMonitor = _FALSE;
 	}
 
@@ -3497,6 +3499,10 @@ static void fill_fake_txdesc(PADAPTER adapter, u8 *pDesc, u32 BufferLen,
 void rtl8821c_rxdesc2attribute(struct rx_pkt_attrib *pattrib, u8 *desc)
 {
 	_rtw_memset(pattrib, 0, sizeof(struct rx_pkt_attrib));
+
+#ifdef CONFIG_RADIOTAP_WITH_RXDESC
+	_rtw_memcpy(pattrib->rxdesc, desc, RXDESC_SIZE);
+#endif
 
 	pattrib->pkt_len = (u16)GET_RX_DESC_PKT_LEN_8821C(desc);
 	pattrib->crc_err = (u8)GET_RX_DESC_CRC32_8821C(desc);
